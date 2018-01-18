@@ -9,41 +9,6 @@ module Self = Plugin.Register
     let help = help_msg
   end)
 
-(* Treillis *)
-(* TODO - Type & Union & Equal & Diff*)
-type Prop = 
-  | Top
-  | Bottom
-;;
-
-let union a b = 
-  match (a;b) with
-  | (Top,_) -> Top
-  | (_, Top) -> Top
-  | (Bottom, _) -> Bottom
-  | (_, Bottom) -> Bottom
-;;
-
-let diff a b = 
-  match (a;b) with
-  | (Top,Top) -> true
-  | (Top,_) -> false
-  | (Bottom, Bottom) -> true
-  | (Bottom, _) -> false
-;;
-
-(* Sémantique *)
-(*TODO - Type block (liste d'instruction de la boucle)*)
-let analyse_boucle block phi = 
-  Printer.pp_instr out block
-;;
-
-
-let rec looper phi_1 phi_2 block =  
-  if (diff phi_1 phi_2) then let phi = (union phi_1 phi_2) in looper (analyse_boucle block phi) phi
-  else phi_1
-;;
-
 let print_stmt out = function
   | Instr i -> Printer.pp_instr out i
   | Return _ -> Format.pp_print_string out "<return>"
@@ -56,13 +21,45 @@ let print_stmt out = function
   | Block _-> Format.fprintf out "<block>"
   | UnspecifiedSequence _-> Format.fprintf out "<unspecified sequence>"
   | TryFinally _ | TryExcept _ | TryCatch _-> Format.fprintf out "<try>"
-  | Throw _-> Format.fprintf out"<throw>"
+  | Throw _-> Format.fprintf out "<throw>"
+
+
+(* TODO - Corriger *)
+class print_cfg out = object
+  inherit Visitor.frama_c_inplace
+
+  method !vfile _ =
+    Format.fprintf out "@[<hov 2>digraph cfg {@ ";
+    Cil.DoChildrenPost( 
+      fun f -> Format.fprintf out"}@]@.";f
+    )
+
+  method !vglob_aux g =
+    match g with
+      | GFun(f,_) -> Format.fprintf out "@[<hov 2> subgraph cluster_%a {@ \
+                                         @[<hv 2> graph@ [label=\"%a\"];@]@ "
+                       Printer.pp_varinfo f.svar
+                       Printer.pp_varinfo f.svar;
+                     Cil.DoChildrenPost(
+                       fun g -> Format.fprintf out "}@]@ "; g
+                     )
+      | _ -> Cil.SkipChildren
+
+  method !vstmt_aux s =
+    Format.fprintf out "@[<hov 2> s%d@ [label=%S]@];@ " s.sid
+      (Pretty_utils.to_string print_stmt s.skind);
+    List.iter(
+      fun succ -> Format.fprintf out"@[s%d->s%d;@]@ " s.sid succ.sid
+    ) s.succs;
+    Format.fprintf out "@]";
+    Cil.DoChildren
+
+end
 
 let run () = 
-  Self.result "Hello world!";
-  Self.feedback ~level:2 "Writing in 'hello.out'...";
-  let chan = open_out "hello.out" in 
-  Printf.fprintf chan "Hello world!\n";
+  let chan = open_out "dataflow.out" in 
+  let fmt = Format.formatter_of_out_channel chan in 
+  Visitor.visitFramacFileSameGlobals(new print_cfg fmt) (Ast.get());
   close_out chan
 ;;
 
